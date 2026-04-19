@@ -2,204 +2,892 @@
 //  AppSettingsView.swift
 //  PlayCover
 //
-//  Created by lbxia on 2021/11/18.
+//  Created by Isaac Marovitz on 14/08/2022.
 //
 
-import Foundation
 import SwiftUI
-import UniformTypeIdentifiers
+import DataCache
 
+enum BlockingTask {
+    case none, playTools, introspection, iosFrameworks, applicationCategoryType
+}
+
+// swiftlint:disable file_length
 struct AppSettingsView: View {
-    
-    @State var selectedDevice: Int
-    @State var screenWidth: Double
-    @State var screenHeight: Double
-    @State var version: String
-    @State var key: String
-    @State var selectedIndex: Int = 0
-    
-    @State var showImportSuccess: Bool = false
-    
-    @ObservedObject var app: BaseApp
-    @ObservedObject var viewModel: AppSettingsViewModel
-    
-    @Environment(\.presentationMode) var presentationMode
-    
-    init(app: BaseApp) {
-        self.app = app
-        self.viewModel = AppSettingsViewModel(app: app)
-        
-        let settings = AppSettings.get(for: app.info.bundleIdentifier)
-        
-        _selectedDevice = State(initialValue: settings.deviceType)
-        _screenWidth = State(initialValue: settings.screenWidth)
-        _screenHeight = State(initialValue: settings.screenHeight)
-        _version = State(initialValue: settings.version)
-        _key = State(initialValue: settings.gamePadKey)
-    }
-    
+    @Environment(\.dismiss) var dismiss
+
+    @ObservedObject var viewModel: AppSettingsVM
+
+    @Binding var showKeymapSheet: Bool
+
+    @State var resetSettingsCompletedAlert = false
+    @State var closeView = false
+    @State var appIcon: NSImage?
+    @State var hasPlayTools: Bool?
+    @State var hasAlias: Bool?
+
+    @State private var currentTask = BlockingTask.none
+    @State private var cache = DataCache.instance
+
     var body: some View {
         VStack {
             HStack {
-                Text("App Settings")
-                    .font(.title)
-                    .padding()
-                Spacer()
-            }
-            
-            TabView(selection: $selectedIndex) {
+                Group {
+                    if let image = appIcon {
+                        Image(nsImage: image)
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                    } else {
+                        ProgressView()
+                            .progressViewStyle(.circular)
+                            .frame(width: 60, height: 60)
+                    }
+                }
+                .cornerRadius(10)
+                .shadow(radius: 1)
+                .frame(width: 33, height: 33)
+
                 VStack {
                     HStack {
-                        Text("Device Settings")
-                            .font(.title2)
+                        Text(String(
+                            format:
+                                NSLocalizedString("settings.title", comment: ""),
+                            viewModel.app.name))
+                            .font(.title2).bold()
+                            .multilineTextAlignment(.leading)
                         Spacer()
                     }
-                    
-                    Picker("Device Type", selection: $selectedDevice) {
-                        Text("iPad Pro (12.9-inch) (1st gen) | A9X | 4GB").tag(0)
-                        Text("iPad Pro (12.9-inch) (3rd gen) | A12X | 4GB").tag(1)
-                        Text("iPad Pro (12.9-inch) (5th gen) | M1 | 8GB").tag(2)
-                        Text("iPad Pro (12.9-inch) (6th gen) | M2 | 8GB").tag(3)
-                        Text("iPad Pro (13-inch) (7th gen) | M4 | 8GB").tag(4)
-                        Text("iPad Pro (13-inch) (8th gen) | M5 | 12GB").tag(5)
-                        Text("iPhone 13 Pro Max | A15 | 6GB").tag(6)
-                        Text("iPhone 14 Pro Max | A16 | 6GB").tag(7)
-                        Text("iPhone 15 Pro Max | A17 Pro | 8GB").tag(8)
-                        Text("iPhone 16 Pro Max | A18 Pro | 8GB").tag(9)
-                        Text("iPhone 17 Pro Max | A19 Pro | 8GB").tag(10)
-                    }
-                    .onChange(of: selectedDevice) { tag in
-                        let device = PlayTools.deviceList[tag]
-                        screenWidth = device.screenWidth
-                        screenHeight = device.screenHeight
-                        version = device.osVersion
-                    }
-                    
-                    HStack {
-                        TextField("Screen Width", value: $screenWidth, formatter: NumberFormatter())
-                        Text("x")
-                        TextField("Screen Height", value: $screenHeight, formatter: NumberFormatter())
-                    }
-                    
-                    TextField("iOS Version", text: $version)
-                    
-                    HStack {
-                        Spacer()
-                        Button("Reset") {
-                            let settings = AppSettings.defaultSettings
-                            selectedDevice = settings.deviceType
-                            screenWidth = settings.screenWidth
-                            screenHeight = settings.screenHeight
-                            version = settings.version
+
+                    let noPlayToolsWarning = Image(systemName: "exclamationmark.triangle")
+                    let warning = NSLocalizedString("settings.noPlayTools", comment: "")
+
+                    if !(hasPlayTools ?? true) {
+                        HStack {
+                            Text("\(noPlayToolsWarning) \(warning)")
+                                .font(.caption)
+                                .multilineTextAlignment(.leading)
+                            Spacer()
                         }
                     }
                 }
-                .tabItem {
-                    Image(systemName: "iphone")
-                    Text("Device")
+            }
+            .task(priority: .userInitiated) {
+                appIcon = cache.readImage(forKey: viewModel.app.info.bundleIdentifier)
+            }
+
+            TabView {
+                KeymappingView(settings: $viewModel.settings)
+                    .tabItem {
+                        Text("settings.tab.km")
+                    }
+                    .disabled(!(hasPlayTools ?? true))
+                GraphicsView(settings: $viewModel.settings)
+                    .tabItem {
+                        Text("settings.tab.graphics")
+                    }
+                    .disabled(!(hasPlayTools ?? true))
+                BypassesView(settings: $viewModel.settings,
+                             hasPlayTools: $hasPlayTools,
+                             task: $currentTask,
+                             app: viewModel.app)
+                    .tabItem {
+                        Text("settings.tab.bypasses")
+                    }
+                    .disabled(!(hasPlayTools ?? true))
+                MiscView(settings: $viewModel.settings,
+                         closeView: $closeView,
+                         hasPlayTools: $hasPlayTools,
+                         hasAlias: $hasAlias,
+                         task: $currentTask,
+                         app: viewModel.app,
+                         applicationCategoryType: viewModel.app.info.applicationCategoryType)
+                    .tabItem {
+                        Text("settings.tab.misc")
+                    }
+                InfoView(info: viewModel.app.info, hasPlayTools: (hasPlayTools ?? true))
+                    .tabItem {
+                        Text("settings.tab.info")
+                    }
+            }
+            .frame(minWidth: 500, minHeight: 250)
+            HStack {
+                Spacer()
+                Button("settings.resetSettings") {
+                    resetSettingsCompletedAlert.toggle()
+                    viewModel.app.settings.reset()
+                    closeView.toggle()
                 }
-                .tag(0)
-                
-                VStack {
-                    HStack {
-                        Text("Keymapping")
-                            .font(.title2)
+                Button("playapp.keymap") {
+                    closeView.toggle()
+                    showKeymapSheet.toggle()
+                }
+                Button("button.OK") {
+                    closeView.toggle()
+                }
+                .tint(.accentColor)
+                .keyboardShortcut(.defaultAction)
+            }
+        }
+        .disabled(currentTask != .none)
+        .onChange(of: resetSettingsCompletedAlert) { _ in
+            ToastVM.shared.showToast(
+                toastType: .notice,
+                toastDetails: NSLocalizedString("settings.resetSettingsCompleted", comment: ""))
+        }
+        .onChange(of: closeView) { _ in
+            dismiss()
+        }
+        .task(priority: .background) {
+            hasPlayTools = viewModel.app.hasPlayTools()
+            hasAlias = viewModel.app.hasAlias()
+        }
+        .padding()
+    }
+}
+
+struct KeymappingView: View {
+    @Binding var settings: AppSettings
+    @AppStorage("settings.settings.keymapping") private var keymapping = false
+    @AppStorage("settings.settings.noKMOnInput") private var noKMOnInput = false
+    @AppStorage("settings.settings.enableScrollWheel") private var enableScrollWheel = false
+    var body: some View {
+        ScrollView {
+            VStack {
+                HStack {
+                    Toggle("settings.toggle.km", isOn: $settings.settings.keymapping)
+                        .help("settings.toggle.km.help")
+                    Spacer()
+                    Toggle("settings.toggle.autoKM", isOn: $settings.settings.noKMOnInput)
+                        .help("settings.toggle.autoKM.help")
+                }
+                HStack {
+                    Toggle("settings.toggle.enableScrollWheel", isOn: $settings.settings.enableScrollWheel)
+                        .help("settings.toggle.enableScrollWheel.help")
+                    Spacer()
+                }
+                HStack {
+                    Toggle("settings.toggle.disableBuiltinMouse", isOn: $settings.settings.disableBuiltinMouse)
+                        .help("settings.toggle.disableBuiltinMouse.help")
+                    Spacer()
+                }
+                HStack {
+                    Text(String(
+                        format: NSLocalizedString("settings.slider.mouseSensitivity", comment: ""),
+                        settings.settings.sensitivity))
+                    Spacer()
+                    Slider(value: $settings.settings.sensitivity, in: 0...100, label: { EmptyView() })
+                        .frame(width: 250)
+                        .disabled(!settings.settings.keymapping)
+                }
+                Spacer()
+            }
+            .padding()
+        }
+    }
+}
+
+// swiftlint:disable:next type_body_length
+struct GraphicsView: View {
+    @Binding var settings: AppSettings
+    @State var customWidth = 1920
+    @State var customHeight = 1080
+    @State var showResolutionWarning = false
+    @AppStorage("settings.settings.inverseScreenValues") private var inverseScreenValues = false
+    @AppStorage("settings.settings.disableTimeout") private var disableTimeout = false
+    @AppStorage("settings.toggle.hideTitleBar") private var hideTitleBar = false
+    @AppStorage("settings.toggle.floatingWindow") private var floatingWindow = false
+    static var number: NumberFormatter {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .none
+        return formatter
+    }
+
+    @State var customScaler = 2.0
+    static var fractionFormatter: NumberFormatter {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.maximumFractionDigits = 1
+        formatter.minimumFractionDigits = 1
+        formatter.decimalSeparator = "."
+        return formatter
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack {
+                HStack {
+                    Text("settings.picker.iosDevice")
+                    Spacer()
+                    Picker("", selection: $settings.settings.iosDeviceModel) {
+                        Text("iPad Pro (12.9-inch) (1st gen) | A9X | 4GB").tag("iPad6,7")
+                        Text("iPad Pro (12.9-inch) (3rd gen) | A12X | 4GB").tag("iPad8,6")
+                        Text("iPad Pro (12.9-inch) (5th gen) | M1 | 8GB").tag("iPad13,8")
+                        Text("iPad Pro (12.9-inch) (6th gen) | M2 | 8GB").tag("iPad14,5")
+                        Text("iPad Pro (13-inch) (7th gen) | M4 | 8GB").tag("iPad16,6")
+                        Divider()
+                        Text("iPhone 13 Pro Max | A15 | 6GB").tag("iPhone14,3")
+                        Text("iPhone 14 Pro Max | A16 | 6GB").tag("iPhone15,3")
+                        Text("iPhone 15 Pro Max | A17 Pro | 8GB").tag("iPhone16,2")
+                        Text("iPhone 16 Pro Max | A18 Pro | 8GB").tag("iPhone17,2")
+                    }
+                    .frame(width: 250)
+                }
+                HStack {
+                    if showResolutionWarning {
+                        Spacer()
+                        let highResIcon = Image(systemName: "exclamationmark.triangle")
+                        let warning = NSLocalizedString("settings.highResolution", comment: "")
+
+                        Text("\(highResIcon) \(warning)")
+                            .font(.caption)
+                    } else {
                         Spacer()
                     }
-                    
-                    HStack {
-                        Text("GamePad Sensitivity")
-                        TextField("Sensitivity", text: $key)
+                }
+                HStack {
+                    Text("settings.picker.adaptiveRes")
+                    Spacer()
+                    Picker("", selection: $settings.settings.resolution) {
+                        Text("settings.picker.adaptiveRes.0").tag(0)
+                        Text("settings.picker.adaptiveRes.1").tag(1)
+                        Text("1080p").tag(2)
+                        Text("1440p").tag(3)
+                        Text("4K").tag(4)
+                        Text("settings.picker.adaptiveRes.5").tag(5)
+                        Text("settings.picker.adaptiveRes.6").tag(6)
                     }
-                    
-                    HStack {
+                    .frame(width: 250, alignment: .leading)
+                    .help("settings.picker.adaptiveRes.help")
+                }
+                HStack {
+                    if settings.settings.resolution == 5 {
+                        Text(NSLocalizedString("settings.text.customWidth", comment: "") + ":")
+                        Stepper {
+                            TextField(
+                                "settings.text.customWidth",
+                                value: $customWidth,
+                                formatter: GraphicsView.number,
+                                onCommit: {
+                                    Task { @MainActor in
+                                        NSApp.keyWindow?.makeFirstResponder(nil)
+                                    }
+                                })
+                                .frame(width: 125)
+                        }
+                        onIncrement: { customWidth += 1 }
+                        onDecrement: { customWidth -= 1 }
                         Spacer()
-                        Button("Import Keymap") {
-                            let panel = NSOpenPanel()
-                            panel.allowsMultipleSelection = false
-                            panel.canChooseDirectories = false
-                            panel.canChooseFiles = true
-                            panel.allowedContentTypes = [UTType.json]
-                            
-                            if panel.runModal() == .OK {
-                                do {
-                                    let data = try Data(contentsOf: panel.url!)
-                                    let json = try JSONSerialization.jsonObject(with: data, options: .fragmentsAllowed) as! [String: Any]
-                                    
-                                    let keymap = Keymap(
-                                        name: json["name"] as! String,
-                                        bundleId: app.info.bundleIdentifier,
-                                        keyCodes: json["keyCodes"] as! [Int],
-                                        pointers: json["pointers"] as! [Int],
-                                        mouseArea: json["mouseArea"] as! [Int],
-                                        pageIndex: json["pageIndex"] as! Int,
-                                        sensitivity: json["sensitivity"] as! Float
-                                    )
-                                    
-                                    KeymapManager.shared.addKeymap(keymap)
-                                    showImportSuccess = true
-                                } catch {
-                                    Log.shared.error(error)
+                        Text(NSLocalizedString("settings.text.customHeight", comment: "") + ":")
+                        Stepper {
+                            TextField(
+                                "settings.text.customHeight",
+                                value: $customHeight,
+                                formatter: GraphicsView.number,
+                                onCommit: {
+                                    Task { @MainActor in
+                                        NSApp.keyWindow?.makeFirstResponder(nil)
+                                    }
+                                })
+                                .frame(width: 125)
+                        } onIncrement: {
+                            customHeight += 1
+                        } onDecrement: {
+                            customHeight -= 1
+                        }
+                    } else if settings.settings.resolution >= 2 && settings.settings.resolution <= 4 {
+                        Text("settings.picker.aspectRatio")
+                        Spacer()
+                        Picker("", selection: $settings.settings.aspectRatio) {
+                            Text("4:3").tag(0)
+                            Text("16:9").tag(1)
+                            Text("16:10").tag(2)
+                        }
+                        .pickerStyle(.radioGroup)
+                        .horizontalRadioGroupLayout()
+                    } else if settings.settings.resolution == 6 {
+                        Text("settings.picker.aspectRatio")
+                        VStack(alignment: .trailing) {
+                            Picker("", selection: $settings.settings.resizableAspectRatioType) {
+                                Text("settings.picker.aspectRatio.free").tag(0)
+                                Text("settings.picker.aspectRatio.custom").tag(1)
+                                Text("4:3").tag(2)
+                                Text("16:9").tag(3)
+                                Text("16:10").tag(4)
+                            }
+                            .pickerStyle(.radioGroup)
+                            .horizontalRadioGroupLayout()
+                            if settings.settings.resizableAspectRatioType == 1 {
+                                HStack {
+                                    TextField("", value: $settings.settings.resizableAspectRatioWidth,
+                                              formatter: GraphicsView.number)
+                                    .frame(width: 110)
+                                    Text(":")
+                                    TextField("", value: $settings.settings.resizableAspectRatioHeight,
+                                              formatter: GraphicsView.number)
+                                    .frame(width: 110)
                                 }
                             }
                         }
-                        .alert("Import Success", isPresented: $showImportSuccess) {
-                            Button("OK", role: .cancel) { }
-                        }
-                    }
-                }
-                .tabItem {
-                    Image(systemName: "keyboard")
-                    Text("Keymap")
-                }
-                .tag(1)
-                
-                VStack {
-                    HStack {
-                        Text("Other Settings")
-                            .font(.title2)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                    } else if settings.settings.resolution == 1 {
+                        let width = Int(NSScreen.main?.frame.width ?? 1920)
+                        let height = getHeightForNotch(width, Int(NSScreen.main?.frame.height ?? 1080))
+                        Text("settings.text.detectedResolution")
+                        Spacer()
+                        Text("\(width) x \(height)")
+                    } else {
                         Spacer()
                     }
-                    
-                    Toggle("Disable Library Validation", isOn: $viewModel.disableLibraryValidation)
-                    Toggle("Disable AMFI", isOn: $viewModel.disableAMFI)
-                    Toggle("Enable Debug Log", isOn: $viewModel.enableDebugLog)
-                    Toggle("Inject PlayTools", isOn: $viewModel.injectPlayTools)
                 }
-                .tabItem {
-                    Image(systemName: "gear")
-                    Text("Other")
+                HStack {
+                    Text("settings.picker.scaler")
+                    Spacer()
+                    Stepper {
+                        TextField(
+                            "settings.text.scaler",
+                            value: $customScaler,
+                            formatter: GraphicsView.fractionFormatter,
+                            onCommit: {
+                                Task { @MainActor in NSApp.keyWindow?.makeFirstResponder(nil) }
+                            })
+                            .frame(width: 125)
+                    } onIncrement: {
+                        customScaler += 0.1
+                    } onDecrement: {
+                        if customScaler > 0.5 { customScaler -= 0.1 }
+                    }
                 }
-                .tag(2)
-            }
-            
-            HStack {
-                Button("Cancel") {
-                    presentationMode.wrappedValue.dismiss()
+                VStack(alignment: .leading) {
+                    if #available(macOS 13.2, *) {
+                        HStack {
+                            Toggle("settings.picker.windowFix", isOn: $settings.settings.inverseScreenValues)
+                                .help("settings.picker.windowFix.help")
+                                .onChange(of: settings.settings.inverseScreenValues) { _ in
+                                    settings.settings.windowFixMethod = 0
+                                }
+                            Spacer()
+                            // Dropdown to choose fix method
+                            Picker("", selection: $settings.settings.windowFixMethod) {
+                                Text("settings.picker.windowFixMethod.0").tag(0)
+                                Text("settings.picker.windowFixMethod.1").tag(1)
+                            }
+                            .frame(alignment: .leading)
+                            .help("settings.picker.windowFixMethod.help")
+                            .disabled(!settings.settings.inverseScreenValues)
+                            .disabled(settings.settings.resolution != 0)
+                        }
+                        Spacer()
+                    }
+                    Toggle("settings.toggle.disableDisplaySleep", isOn: $settings.settings.disableTimeout)
+                        .help("settings.toggle.disableDisplaySleep.help")
+                    Spacer()
+                    Toggle("settings.toggle.hideTitleBar", isOn: $settings.settings.hideTitleBar)
+                    Spacer()
+                    Toggle("settings.toggle.floatingWindow", isOn: $settings.settings.floatingWindow)
+                    Spacer()
                 }
-                
                 Spacer()
-                
-                Button("OK") {
-                    let settings = AppSettings(
-                        deviceType: selectedDevice,
-                        screenWidth: screenWidth,
-                        screenHeight: screenHeight,
-                        version: version,
-                        gamePadKey: key,
-                        disableLibraryValidation: viewModel.disableLibraryValidation,
-                        disableAMFI: viewModel.disableAMFI,
-                        enableDebugLog: viewModel.enableDebugLog,
-                        injectPlayTools: viewModel.injectPlayTools
-                    )
-                    
-                    AppSettings.set(settings, for: app.info.bundleIdentifier)
-                    presentationMode.wrappedValue.dismiss()
+            }
+            .padding()
+            .onAppear {
+                customWidth = settings.settings.windowWidth
+                customHeight = settings.settings.windowHeight
+                customScaler = settings.settings.customScaler
+            }
+            .onChange(of: settings.settings.resolution) { _ in
+                setResolution()
+            }
+            .onChange(of: settings.settings.aspectRatio) { _ in
+                setResolution()
+            }
+            .onChange(of: customWidth) { _ in
+                setResolution()
+            }
+            .onChange(of: customHeight) { _ in
+                setResolution()
+            }
+            .onChange(of: customScaler) { _ in
+                setResolution()
+            }
+            .onChange(of: settings.settings.resizableAspectRatioType) { _ in
+                setAspectRatioForResizableWindow()
+            }
+        }
+    }
+
+    func setResolution() {
+        var width: Int
+        var height: Int
+
+        switch settings.settings.resolution {
+        // Adaptive resolution = Auto
+        case 1:
+            width = Int(NSScreen.main?.frame.width ?? 1920)
+            height = getHeightForNotch(width, Int(NSScreen.main?.frame.height ?? 1080))
+        // Adaptive resolution = 1080p
+        case 2:
+            height = 1080
+            width = getWidthFromAspectRatio(height)
+        // Adaptive resolution = 1440p
+        case 3:
+            height = 1440
+            width = getWidthFromAspectRatio(height)
+        // Adaptive resolution = 4K
+        case 4:
+            height = 2160
+            width = getWidthFromAspectRatio(height)
+        // Adaptive resolution = Custom
+        case 5:
+            width = customWidth
+            height = customHeight
+        // Adaptive resolution = Off
+        default:
+            height = 1080
+            width = 1920
+        }
+
+        settings.settings.windowWidth = width
+        settings.settings.windowHeight = height
+        settings.settings.customScaler = customScaler
+
+        showResolutionWarning = Double(width * height) * customScaler >= 2621440 * 2.0
+        // Tends to crash when the number of pixels exceeds that
+    }
+
+    func getWidthFromAspectRatio(_ height: Int) -> Int {
+        var widthRatio: Int
+        var heightRatio: Int
+
+        switch settings.settings.aspectRatio {
+        case 0:
+            widthRatio = 4
+            heightRatio = 3
+        case 1:
+            widthRatio = 16
+            heightRatio = 9
+        case 2:
+            widthRatio = 16
+            heightRatio = 10
+        default:
+            widthRatio = 16
+            heightRatio = 9
+        }
+        return (height / heightRatio) * widthRatio
+    }
+    func getHeightForNotch(_ width: Int, _ height: Int) -> Int {
+        let wFloat = Float(width)
+        let hFloat = Float(height)
+        if NSScreen.hasNotch() && (hFloat/wFloat)*16.0 > 10.3 && (hFloat/wFloat)*16.0 < 10.4 {
+            return Int((wFloat / 16) * 10)
+        } else {
+            return Int(height)
+        }
+    }
+
+    func setAspectRatioForResizableWindow() {
+        var widthRatio = 0
+        var heightRatio = 0
+
+        switch settings.settings.resizableAspectRatioType {
+        // Aspect ratio = Free
+        case 0:
+            widthRatio = 0
+            heightRatio = 0
+        // Aspect ratio = Custom
+        case 1:
+            widthRatio = settings.settings.resizableAspectRatioWidth
+            heightRatio = settings.settings.resizableAspectRatioHeight
+        // Aspect ratio = 4:3
+        case 2:
+            widthRatio = 4
+            heightRatio = 3
+        // Aspect ratio = 16:9
+        case 3:
+            widthRatio = 16
+            heightRatio = 9
+        // Aspect ratio = 16:10
+        case 4:
+            widthRatio = 16
+            heightRatio = 10
+        default:
+            widthRatio = 16
+            heightRatio = 9
+        }
+
+        settings.settings.resizableAspectRatioWidth = widthRatio
+        settings.settings.resizableAspectRatioHeight = heightRatio
+    }
+}
+
+struct BypassesView: View {
+    @Binding var settings: AppSettings
+    @Binding var hasPlayTools: Bool?
+    @Binding var task: BlockingTask
+    @AppStorage("settings.settings.playChain") private var playChain = false
+    @AppStorage("settings.settings.playChainDebugging") private var playChainDebugging = false
+    @AppStorage("settings.settings.bypass") private var bypass = false
+    @State private var hasIntrospection: Bool
+    @State private var hasIosFrameworks: Bool
+
+    var app: PlayApp
+
+    init(settings: Binding<AppSettings>,
+         hasPlayTools: Binding<Bool?>,
+         task: Binding<BlockingTask>,
+         app: PlayApp) {
+        self._settings = settings
+        self._hasPlayTools = hasPlayTools
+        self._task = task
+        self.app = app
+
+        let lsEnvironment = app.info.lsEnvironment["DYLD_LIBRARY_PATH"] ?? ""
+        self.hasIntrospection = lsEnvironment.contains(PlayApp.introspection)
+        self.hasIosFrameworks = lsEnvironment.contains(PlayApp.iosFrameworks)
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack {
+                HStack(alignment: .center) {
+                    Toggle("settings.playChain.enable", isOn: $settings.settings.playChain)
+                        .help("settings.playChain.help")
+                        .disabled(!(hasPlayTools ?? true))
+                    Spacer()
+                    Toggle("settings.playChain.debugging", isOn: $settings.settings.playChainDebugging)
+                        .disabled(!settings.settings.playChain)
+                }
+                Spacer()
+                    .frame(height: 20)
+                HStack {
+                    Toggle("MaaTools", isOn: $settings.settings.maaTools)
+                    Spacer()
+                    Text("Port:")
+                    Stepper(value: $settings.settings.maaToolsPort, in: 1024 ... 65535) {
+                        TextField("MaaTools Port",
+                                  value: $settings.settings.maaToolsPort,
+                                  formatter: GraphicsView.number)
+                        .frame(width: 125)
+                    }
+                    .disabled(!settings.settings.maaTools)
+                    Spacer()
+                }
+                Spacer()
+                    .frame(height: 20)
+                HStack {
+                    Toggle("settings.toggle.jbBypass", isOn: $settings.settings.bypass)
+                        .help("settings.toggle.jbBypass.help")
+                    Spacer()
+                }
+                Spacer()
+                HStack {
+                    Toggle("settings.toggle.introspection", isOn: $hasIntrospection)
+                        .help("settings.toggle.introspection.help")
+                        .toggleStyle(.async($task, role: .introspection))
+                    Spacer()
+                }
+                Spacer()
+                HStack {
+                    Toggle("settings.toggle.iosFrameworks", isOn: $hasIosFrameworks)
+                        .help("settings.toggle.iosFrameworks.help")
+                        .toggleStyle(.async($task, role: .iosFrameworks))
+                    Spacer()
+                }
+                Spacer()
+                HStack {
+                    Toggle("settings.toggle.checkMicPermissionSync", isOn: $settings.settings.checkMicPermissionSync)
+                        .help("settings.toggle.checkMicPermissionSync.help")
+                    Spacer()
+                }
+                Spacer()
+                HStack {
+                    Toggle("settings.toggle.blockSleepSpamming", isOn: $settings.settings.blockSleepSpamming)
+                        .help("settings.toggle.blockSleepSpamming.help")
+                    Spacer()
                 }
             }
             .padding()
         }
+        .onChange(of: hasIntrospection) {_ in
+            task = .introspection
+            Task {
+                _ = await app.changeDyldLibraryPath(set: hasIntrospection, path: PlayApp.introspection)
+                task = .none
+            }
+        }
+        .onChange(of: hasIosFrameworks) {_ in
+            task = .iosFrameworks
+            Task {
+                _ = await app.changeDyldLibraryPath(set: hasIosFrameworks, path: PlayApp.iosFrameworks)
+                task = .none
+            }
+        }
+    }
+}
+
+struct MiscView: View {
+    @Binding var settings: AppSettings
+    @Binding var closeView: Bool
+    @Binding var hasPlayTools: Bool?
+    @Binding var hasAlias: Bool?
+    @Binding var task: BlockingTask
+    @AppStorage("settings.settings.discordActivity.enable") private var discordActivity = false
+    @AppStorage("settings.settings.metalHUD") private var metalHUD = false
+    @AppStorage("settings.openWithLLDB") private var openWithLLDB = false
+    @AppStorage("settings.openLLDBWithTerminal") private var openLLDBWithTerminal = false
+    @State var showPopover = false
+    var app: PlayApp
+    @State var applicationCategoryType: LSApplicationCategoryType
+    var body: some View {
+        ScrollView {
+            VStack {
+                HStack {
+                    Text("settings.applicationCategoryType")
+                    Spacer()
+                    if task == .applicationCategoryType {
+                        ProgressView()
+                            .scaleEffect(0.5)
+                            .frame(width: 16, height: 16)
+                    }
+                    Picker("", selection: $applicationCategoryType) {
+                        ForEach(LSApplicationCategoryType.allCases, id: \.rawValue) { value in
+                            Text(value.localizedName)
+                                .tag(value)
+                        }
+                    }
+                    .frame(width: 225)
+                    .onChange(of: applicationCategoryType) { _ in
+                        task = .applicationCategoryType
+                        app.info.applicationCategoryType = applicationCategoryType
+                        Task.detached {
+                            do {
+                                try await Shell.signApp(app.executable)
+
+                                Task { @MainActor in
+                                    task = .none
+                                }
+                            } catch {
+                                Log.shared.error(error)
+                            }
+                        }
+                    }
+                }
+                Spacer()
+                    .frame(height: 20)
+                HStack {
+                    Toggle("settings.toggle.discord", isOn: $settings.settings.discordActivity.enable)
+                    Spacer()
+                    Button("settings.button.discord") { showPopover = true }
+                        .popover(isPresented: $showPopover, arrowEdge: .bottom) {
+                            VStack {
+                                HStack {
+                                    Text("settings.text.applicationID")
+                                        .frame(width: 90)
+                                    TextField("", text: $settings.settings.discordActivity.applicationID)
+                                        .frame(minWidth: 200, maxWidth: 200)
+                                }.padding([.horizontal, .top])
+                                HStack {
+                                    Text("settings.text.details")
+                                        .frame(width: 90)
+                                        .help("settings.text.details.help")
+                                    TextField("", text: $settings.settings.discordActivity.details)
+                                        .frame(minWidth: 200, maxWidth: 200)
+                                }.padding(.horizontal)
+                                HStack {
+                                    Text("settings.text.state")
+                                        .frame(width: 90)
+                                        .help("settings.text.state.help")
+                                    TextField("", text: $settings.settings.discordActivity.state)
+                                        .frame(minWidth: 200, maxWidth: 200)
+                                }.padding(.horizontal)
+                                HStack {
+                                    Text("settings.text.image")
+                                        .help("settings.text.image.help")
+                                        .frame(width: 90)
+                                    TextField("", text: $settings.settings.discordActivity.image)
+                                        .frame(minWidth: 200, maxWidth: 200)
+                                }.padding(.horizontal)
+                                HStack {
+                                    Button("settings.button.clearActivity") {
+                                        settings.settings.discordActivity = DiscordActivity()
+                                        showPopover = false
+                                    }
+                                    Button("button.OK") { showPopover = false }
+                                }.padding(.bottom)
+                            }
+                        }
+                }.disabled(!(hasPlayTools ?? true))
+                Spacer()
+                    .frame(height: 20)
+                HStack {
+                    HStack {
+                        Toggle("settings.toggle.hud", isOn: $settings.settings.metalHUD)
+                            .disabled(!isVenturaGreater())
+                            .help(!isVenturaGreater() ? "settings.unavailable.hud" : "")
+                        Spacer()
+                        HStack {
+                            Text("settings.text.debugger")
+                            VStack {
+                                Toggle("settings.toggle.lldb", isOn: $settings.openWithLLDB)
+                                Toggle("settings.toggle.lldbWithTerminal", isOn: $settings.openLLDBWithTerminal)
+                                    .disabled(!settings.openWithLLDB)
+                            }
+                        }
+                    }
+                }
+                Spacer()
+                    .frame(height: 20)
+                HStack {
+                    Button {
+                        task = .playTools
+                        Task(priority: .userInitiated) {
+                            if hasPlayTools ?? true {
+                                await PlayTools.removeFromApp(app.executable)
+                            } else {
+                                do {
+                                    try await PlayTools.installInIPA(app.executable)
+                                } catch {
+                                    Log.shared.error(error)
+                                }
+                            }
+
+                            Task { @MainActor in
+                                AppsVM.shared.filteredApps = []
+                                AppsVM.shared.fetchApps()
+                            }
+
+                            task = .none
+                            closeView.toggle()
+                        }
+                    } label: {
+                        Text((hasPlayTools ?? true) ? "settings.removePlayTools" : "alert.install.injectPlayTools")
+                            .opacity(task == .playTools ? 0 : 1)
+                            .overlay {
+                                if task == .playTools {
+                                    ProgressView().scaleEffect(0.5)
+                                }
+                            }
+                    }
+                    Spacer()
+                }
+                Spacer()
+                    .frame(height: 20)
+                HStack {
+                    Toggle("settings.toggle.rootWorkDir", isOn: $settings.settings.rootWorkDir)
+                        .disabled(!(hasPlayTools ?? true))
+                        .help("settings.toggle.rootWorkDir.help")
+                    Spacer()
+                }
+                Spacer()
+                    .frame(height: 20)
+                HStack {
+                    Toggle("settings.toggle.limitMotionUpdateFrequency",
+                           isOn: $settings.settings.limitMotionUpdateFrequency)
+                        .disabled(!(hasPlayTools ?? true))
+                        .help("settings.toggle.limitMotionUpdateFrequency.help")
+                    Spacer()
+                }
+            }
+            .padding()
+        }
+    }
+
+    func isVenturaGreater() -> Bool {
+        if #available(macOS 13.0, *) {
+            return true
+        } else {
+            return false
+        }
+    }
+}
+
+struct InfoView: View {
+    @State var info: AppInfo
+    @State var hasPlayTools: Bool
+
+    var body: some View {
+        List {
+            HStack {
+                Text("settings.info.displayName")
+                Spacer()
+                Text("\(info.displayName)")
+            }
+            HStack {
+                Text("settings.info.bundleName")
+                Spacer()
+                Text("\(info.bundleName)")
+            }
+            HStack {
+                Text("settings.info.bundleIdentifier")
+                Spacer()
+                Text("\(info.bundleIdentifier)")
+            }
+            HStack {
+                Text("settings.info.bundleVersion")
+                Spacer()
+                Text("\(info.bundleVersion)")
+            }
+            HStack {
+                Text("settings.applicationCategoryType") + Text(":")
+                Spacer()
+                Text("\(info.applicationCategoryType.rawValue)")
+            }
+            HStack {
+                Text("settings.info.executableName")
+                Spacer()
+                Text("\(info.executableName)")
+            }
+            HStack {
+                Text("settings.info.minimumOSVersion")
+                Spacer()
+                Text("\(info.minimumOSVersion)")
+            }
+            HStack {
+                Text("settings.info.playTools")
+                Spacer()
+                Text(String(hasPlayTools))
+            }
+            HStack {
+                Text("settings.info.url")
+                Spacer()
+                Text("\(info.url.relativePath)")
+            }
+            HStack {
+                Text("settings.info.alias")
+                Spacer()
+                Text("\(PlayApp.aliasDirectory.appendingPathComponent(info.bundleIdentifier))")
+            }
+        }
+        .listStyle(.bordered(alternatesRowBackgrounds: true))
         .padding()
-        .frame(width: 600, height: 500)
+    }
+}
+
+struct AsyncToggleStyle: ToggleStyle {
+    @Binding var task: BlockingTask
+
+    var role: BlockingTask
+
+    func makeBody(configuration: Configuration) -> some View {
+        if task == role {
+            return AnyView(
+                HStack(spacing: 3) {
+                    ProgressView()
+                        .scaleEffect(0.5)
+                        .frame(width: 16, height: 16)
+
+                    configuration.label
+                }
+            )
+        } else {
+            return AnyView(
+                Toggle(isOn: configuration.$isOn) { configuration.label }
+            )
+        }
+    }
+}
+
+extension ToggleStyle where Self == AsyncToggleStyle {
+    static func async(_ task: Binding<BlockingTask>, role: BlockingTask) -> AsyncToggleStyle {
+        AsyncToggleStyle(task: task, role: role)
     }
 }
