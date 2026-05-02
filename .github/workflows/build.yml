@@ -1,0 +1,46 @@
+name: Build PlayCover (Unsigned)
+
+on:
+  push:
+    branches: [ "main", "develop" ]
+  workflow_dispatch:   # 允许手动触发
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+    - name: 检出代码
+      uses: actions/checkout@v4
+
+    - name: 设置 Xcode
+      run: sudo xcode-select -s /Applications/Xcode.app
+
+    - name: 安装 Carthage 依赖
+      run: |
+        brew install carthage
+        carthage bootstrap --no-use-binaries --platform macOS
+
+    - name: 编译 PlayCover (无签名)
+      run: |
+        xcodebuild -project PlayCover.xcodeproj \
+                   -scheme PlayCover \
+                   -configuration Release \
+                   -derivedDataPath ./DerivedData \
+                   clean build \
+                   CODE_SIGN_IDENTITY="" \
+                   CODE_SIGNING_REQUIRED=NO \
+                   CODE_SIGNING_ALLOWED=NO
+
+    - name: 打包为 DMG
+      run: |
+        APP_PATH="DerivedData/Build/Products/Release/PlayCover.app"
+        mkdir -p dist
+        cp -R "$APP_PATH" dist/
+        hdiutil create -volname "PlayCover" -srcfolder dist -ov -format UDZO "PlayCover-unsigned.dmg"
+
+    - name: 上传构建产物
+      uses: actions/upload-artifact@v4
+      with:
+        name: PlayCover-unsigned
+        path: PlayCover-unsigned.dmg
