@@ -22,8 +22,13 @@ jobs:
         rm -rf ~/Library/Caches/org.carthage.CarthageKit
         carthage bootstrap --no-use-binaries --platform macOS
 
-    - name: 编译 PlayCover (Ad-hoc 签名)
+    - name: 编译 PlayCover (无签名)
       run: |
+        # 修改项目文件，移除对Sparkle的强制签名，并禁用不稳定的脚本
+        sed -i '' '/shellScript = \"\\\\\".*EXPANDED_CODE_SIGN_IDENTITY_NAME/,/\\\\\"\;$/d' PlayCover.xcodeproj/project.pbxproj
+        echo "已移除 project.pbxproj 中的 Sparkle 签名脚本。"
+        
+        # 开始编译
         xcodebuild -project PlayCover.xcodeproj \
                    -scheme PlayCover \
                    -configuration Release \
