@@ -7,14 +7,14 @@ on:
 
 jobs:
   build:
-    runs-on: macos-latest
+    runs-on: macos-13
 
     steps:
     - name: 检出代码
       uses: actions/checkout@v4
 
-    - name: 设置 Xcode
-      run: sudo xcode-select -s /Applications/Xcode.app
+    - name: 设置 Xcode (指定使用 15.4 版本，更稳定可靠)
+      run: sudo xcode-select -s /Applications/Xcode_15.4.app
 
     - name: 安装 Carthage 依赖
       run: |
@@ -22,58 +22,7 @@ jobs:
         rm -rf ~/Library/Caches/org.carthage.CarthageKit
         carthage bootstrap --no-use-binaries --platform macOS
 
-    - name: 安装 SwiftLint (以备后续可能需要)
-      run: brew install swiftlint
-
-    - name: 修复项目配置（跳过签名/Carthage/SwiftLint 脚本）
-      run: |
-        python3 - <<EOF
-        file_path = 'PlayCover.xcodeproj/project.pbxproj'
-        with open(file_path, 'r') as f:
-            content = f.read()
-
-        # 需要跳过的脚本ID
-        target_ids = [
-            'AAC28F222899A05B005057FB',  # Codesign sparkle
-            'AAE8809C287ACA4900FBB23C',  # Carthage Bootstrap
-            '36E7AB27288A0B64004C0C3A'   # SwiftLint
-        ]
-
-        lines = content.split('\\n')
-        i = 0
-        while i < len(lines):
-            line = lines[i]
-            for tid in target_ids:
-                if tid in line:
-                    # 找到对应的字典块范围
-                    j = i
-                    brace = line.count('{') - line.count('}')
-                    while brace > 0 and j + 1 < len(lines):
-                        j += 1
-                        brace += lines[j].count('{') - lines[j].count('}')
-                    # 修改或插入 runOnlyForDeploymentPostprocessing = 1
-                    found = False
-                    for k in range(i, j + 1):
-                        if 'runOnlyForDeploymentPostprocessing' in lines[k]:
-                            lines[k] = lines[k].replace('0', '1')
-                            found = True
-                            break
-                    if not found:
-                        indent = ' ' * 8
-                        close_idx = j
-                        while close_idx > i and '};' not in lines[close_idx]:
-                            close_idx -= 1
-                        if close_idx > i:
-                            lines.insert(close_idx, f'{indent}runOnlyForDeploymentPostprocessing = 1;')
-                    break  # 一个ID只处理一次
-            i += 1
-
-        with open(file_path, 'w') as f:
-            f.write('\\n'.join(lines))
-        print("修改完成：Codesign sparkle, Carthage Bootstrap, SwiftLint 已设置为仅在部署时运行。")
-        EOF
-
-    - name: 编译 PlayCover (Ad-hoc 签名)
+    - name: 编译 PlayCover (标准 Ad-hoc 签名)
       run: |
         xcodebuild -project PlayCover.xcodeproj \
                    -scheme PlayCover \
