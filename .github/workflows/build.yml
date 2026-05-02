@@ -13,29 +13,39 @@ jobs:
     - name: 检出代码
       uses: actions/checkout@v4
 
-    - name: 下载官方 Nightly 中的 PlayTools.framework
+    - name: 下载官方 Release 中的 PlayTools.framework
       run: |
-        # 创建 Frameworks 目录
         mkdir -p Frameworks
         
-        # 从官方 nightly 下载最新的 dmg
-        echo "正在下载 PlayCover 官方 Nightly 版本..."
-        curl -L -o PlayCover.dmg "https://nightly.link/PlayCover/PlayCover/workflows/2.nightly_release/develop"
+        # 定义下载地址：优先使用最新 Release 的 dmg，如果失败则用备用 Nightly 链接
+        DOWNLOAD_URL="https://github.com/PlayCover/PlayCover/releases/latest/download/PlayCover.dmg"
+        BACKUP_URL="https://nightly.link/PlayCover/PlayCover/workflows/2.nightly_release/develop"
+        
+        echo "正在下载 PlayCover 官方 dmg..."
+        # 使用 curl 下载，设置超时，允许重定向
+        if ! curl -fSL -o PlayCover.dmg --connect-timeout 60 "$DOWNLOAD_URL"; then
+          echo "Release 下载失败，尝试备用 Nightly 链接..."
+          curl -fSL -o PlayCover.dmg "$BACKUP_URL"
+        fi
         
         # 挂载 dmg
-        hdiutil attach PlayCover.dmg -mountpoint /Volumes/PlayCover
+        hdiutil attach PlayCover.dmg -mountpoint /Volumes/PlayCover -nobrowse
         
-        # 复制 PlayTools.framework 到项目目录
-        cp -R "/Volumes/PlayCover/PlayCover.app/Contents/Frameworks/PlayTools.framework" ./Frameworks/
+        # 检查 PlayTools.framework 是否存在
+        if [ -d "/Volumes/PlayCover/PlayCover.app/Contents/Frameworks/PlayTools.framework" ]; then
+          cp -R "/Volumes/PlayCover/PlayCover.app/Contents/Frameworks/PlayTools.framework" ./Frameworks/
+          echo "✅ PlayTools.framework 提取成功。"
+        else
+          echo "❌ 错误：dmg 中未找到 PlayTools.framework，请检查下载。"
+          ls -R /Volumes/PlayCover/PlayCover.app/Contents/Frameworks/
+          exit 1
+        fi
         
         # 卸载 dmg
         hdiutil detach /Volumes/PlayCover
-        
-        echo "PlayTools.framework 已就绪。"
 
     - name: 注释 Cartfile 中的 PlayTools（避免重复编译）
       run: |
-        # 将 PlayTools 那一行注释掉
         sed -i '' 's/^github.*PlayTools.*/# &/' Cartfile
         echo "Cartfile 中的 PlayTools 已注释。"
 
