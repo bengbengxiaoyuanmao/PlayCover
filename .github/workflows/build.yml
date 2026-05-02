@@ -22,13 +22,23 @@ jobs:
         rm -rf ~/Library/Caches/org.carthage.CarthageKit
         carthage bootstrap --no-use-binaries --platform macOS
 
-    - name: 编译 PlayCover (无签名)
+    - name: 修复项目配置 (移除签名脚本)
       run: |
-        # 修改项目文件，移除对Sparkle的强制签名，并禁用不稳定的脚本
-        sed -i '' '/shellScript = \"\\\\\".*EXPANDED_CODE_SIGN_IDENTITY_NAME/,/\\\\\"\;$/d' PlayCover.xcodeproj/project.pbxproj
-        echo "已移除 project.pbxproj 中的 Sparkle 签名脚本。"
+        # 1. 在项目配置中，将 Sparkle 的特定签名身份重写为通用的 Ad-hoc 身份
+        sed -i '' 's/EXPANDED_CODE_SIGN_IDENTITY_NAME/CODESIGN_ALLOCATE/g' PlayCover.xcodeproj/project.pbxproj
+        echo "项目文件中的签名变量已替换。"
         
-        # 开始编译
+        # 2. 查找可能引用旧脚本ID的所有位置并禁用
+        # 这一步会注释掉所有触发 "Codesign sparkle" 阶段的配置行
+        sed -i '' '/AAC28F222899A05B005057FB/,/name = "Codesign sparkle"/ s/^/\/\/ /' PlayCover.xcodeproj/project.pbxproj
+        echo "已注释掉 'Codesign sparkle' 阶段。"
+        
+        # 3. 把 Carthage Bootstrap 脚本也一起注释掉
+        sed -i '' '/AAE8809C287ACA4900FBB23C/,/name = "Carthage Bootstrap"/ s/^/\/\/ /' PlayCover.xcodeproj/project.pbxproj
+        echo "已注释掉 'Carthage Bootstrap' 阶段。"
+
+    - name: 编译 PlayCover (Ad-hoc 签名)
+      run: |
         xcodebuild -project PlayCover.xcodeproj \
                    -scheme PlayCover \
                    -configuration Release \
