@@ -24,6 +24,15 @@ jobs:
 
     - name: 编译 PlayCover (无签名)
       run: |
+        # 在编译前，先修补 2 个编译脚本，移除强制签名逻辑
+        find . -name "Script-AAC28F222899A05B005057FB.sh" -exec sed -i '' 's/EXPANDED_CODE_SIGN_IDENTITY_NAME/CODESIGN_ALLOCATE/' {} \;
+        echo "Patched codesign sparkle script."
+        
+        # 找到 Carthage Bootstrap 脚本，清空其内容以避免任何意外调用
+        find . -name "Script-AAE8809C287ACA4900FBB23C.sh" -exec sh -c 'echo "exit 0" > "$1"' _ {} \;
+        echo "Neutered Carthage Bootstrap script."
+
+        # 开始编译
         xcodebuild -project PlayCover.xcodeproj \
                    -scheme PlayCover \
                    -configuration Release \
@@ -31,7 +40,8 @@ jobs:
                    clean build \
                    CODE_SIGN_IDENTITY="" \
                    CODE_SIGNING_REQUIRED=NO \
-                   CODE_SIGNING_ALLOWED=NO
+                   CODE_SIGNING_ALLOWED=NO \
+                   OTHER_CODE_SIGN_FLAGS="--timestamp=none"
 
     - name: 打包为 DMG
       run: |
