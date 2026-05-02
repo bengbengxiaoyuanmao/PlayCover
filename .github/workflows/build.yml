@@ -22,19 +22,21 @@ jobs:
         rm -rf ~/Library/Caches/org.carthage.CarthageKit
         carthage bootstrap --no-use-binaries --platform macOS
 
-    - name: 安装 SwiftLint
+    - name: 安装 SwiftLint (以备后续可能需要)
       run: brew install swiftlint
 
-    - name: 修复项目配置（跳过签名和 Carthage 脚本）
+    - name: 修复项目配置（跳过签名/Carthage/SwiftLint 脚本）
       run: |
         python3 - <<EOF
         file_path = 'PlayCover.xcodeproj/project.pbxproj'
         with open(file_path, 'r') as f:
             content = f.read()
 
+        # 需要跳过的脚本ID
         target_ids = [
             'AAC28F222899A05B005057FB',  # Codesign sparkle
-            'AAE8809C287ACA4900FBB23C'   # Carthage Bootstrap
+            'AAE8809C287ACA4900FBB23C',  # Carthage Bootstrap
+            '36E7AB27288A0B64004C0C3A'   # SwiftLint
         ]
 
         lines = content.split('\\n')
@@ -43,11 +45,13 @@ jobs:
             line = lines[i]
             for tid in target_ids:
                 if tid in line:
+                    # 找到对应的字典块范围
                     j = i
                     brace = line.count('{') - line.count('}')
                     while brace > 0 and j + 1 < len(lines):
                         j += 1
                         brace += lines[j].count('{') - lines[j].count('}')
+                    # 修改或插入 runOnlyForDeploymentPostprocessing = 1
                     found = False
                     for k in range(i, j + 1):
                         if 'runOnlyForDeploymentPostprocessing' in lines[k]:
@@ -61,12 +65,12 @@ jobs:
                             close_idx -= 1
                         if close_idx > i:
                             lines.insert(close_idx, f'{indent}runOnlyForDeploymentPostprocessing = 1;')
-                    break
+                    break  # 一个ID只处理一次
             i += 1
 
         with open(file_path, 'w') as f:
             f.write('\\n'.join(lines))
-        print("修改完成。")
+        print("修改完成：Codesign sparkle, Carthage Bootstrap, SwiftLint 已设置为仅在部署时运行。")
         EOF
 
     - name: 编译 PlayCover (Ad-hoc 签名)
