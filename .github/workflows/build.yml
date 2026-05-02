@@ -7,22 +7,44 @@ on:
 
 jobs:
   build:
-    runs-on: macos-13
+    runs-on: macos-latest
 
     steps:
     - name: 检出代码
       uses: actions/checkout@v4
 
-    - name: 设置 Xcode (指定使用 15.4 版本，更稳定可靠)
-      run: sudo xcode-select -s /Applications/Xcode_15.4.app
+    - name: 下载官方 Nightly 中的 PlayTools.framework
+      run: |
+        # 创建 Frameworks 目录
+        mkdir -p Frameworks
+        
+        # 从官方 nightly 下载最新的 dmg
+        echo "正在下载 PlayCover 官方 Nightly 版本..."
+        curl -L -o PlayCover.dmg "https://nightly.link/PlayCover/PlayCover/workflows/2.nightly_release/develop"
+        
+        # 挂载 dmg
+        hdiutil attach PlayCover.dmg -mountpoint /Volumes/PlayCover
+        
+        # 复制 PlayTools.framework 到项目目录
+        cp -R "/Volumes/PlayCover/PlayCover.app/Contents/Frameworks/PlayTools.framework" ./Frameworks/
+        
+        # 卸载 dmg
+        hdiutil detach /Volumes/PlayCover
+        
+        echo "PlayTools.framework 已就绪。"
 
-    - name: 安装 Carthage 依赖
+    - name: 注释 Cartfile 中的 PlayTools（避免重复编译）
+      run: |
+        # 将 PlayTools 那一行注释掉
+        sed -i '' 's/^github.*PlayTools.*/# &/' Cartfile
+        echo "Cartfile 中的 PlayTools 已注释。"
+
+    - name: 安装 Carthage 依赖（已不含 PlayTools）
       run: |
         brew install carthage
-        rm -rf ~/Library/Caches/org.carthage.CarthageKit
         carthage bootstrap --no-use-binaries --platform macOS
 
-    - name: 编译 PlayCover (标准 Ad-hoc 签名)
+    - name: 编译 PlayCover (Ad-hoc 签名)
       run: |
         xcodebuild -project PlayCover.xcodeproj \
                    -scheme PlayCover \
@@ -31,7 +53,8 @@ jobs:
                    clean build \
                    CODE_SIGN_IDENTITY="-" \
                    CODE_SIGNING_REQUIRED=YES \
-                   CODE_SIGNING_ALLOWED=YES
+                   CODE_SIGNING_ALLOWED=YES \
+                   FRAMEWORK_SEARCH_PATHS="$(pwd)/Frameworks"
 
     - name: 打包为 DMG
       run: |
