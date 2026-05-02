@@ -24,10 +24,12 @@ jobs:
 
     - name: 编译 PlayCover (无签名)
       run: |
-        # 查看脚本内容
-        echo "=== Content of Codesign sparkle script ==="
-        cat "$(find . -name 'Script-AAC28F222899A05B005057FB.sh' -print -quit)"
-        echo "=== End of script ==="
+        # 找到并覆盖 Codesign sparkle 脚本，避免签名失败
+        SCRIPT_PATH=$(find . -path "*/Script-AAC28F222899A05B005057FB.sh" -print -quit)
+        if [ -f "$SCRIPT_PATH" ]; then
+          echo "exit 0" > "$SCRIPT_PATH"
+          echo "Codesign sparkle script has been overridden."
+        fi
         
         # 开始编译
         xcodebuild -project PlayCover.xcodeproj \
