@@ -22,23 +22,21 @@ jobs:
         rm -rf ~/Library/Caches/org.carthage.CarthageKit
         carthage bootstrap --no-use-binaries --platform macOS
 
-    - name: 修复项目配置 (移除签名脚本)
+    - name: 编译 PlayCover (无签名)
       run: |
-        # 1. 在项目配置中，将 Sparkle 的特定签名身份重写为通用的 Ad-hoc 身份
-        sed -i '' 's/EXPANDED_CODE_SIGN_IDENTITY_NAME/CODESIGN_ALLOCATE/g' PlayCover.xcodeproj/project.pbxproj
-        echo "项目文件中的签名变量已替换。"
+        # 在Xcode开始构建前，先找到那个会生成的临时脚本
+        # 然后提前创建一个同名、无害的脚本，让Xcode去执行它
+        SCRIPT_DIR="DerivedData/Build/Intermediates.noindex/PlayCover.build/Release/PlayCover.build"
+        mkdir -p "$SCRIPT_DIR"
         
-        # 2. 查找可能引用旧脚本ID的所有位置并禁用
-        # 这一步会注释掉所有触发 "Codesign sparkle" 阶段的配置行
-        sed -i '' '/AAC28F222899A05B005057FB/,/name = "Codesign sparkle"/ s/^/\/\/ /' PlayCover.xcodeproj/project.pbxproj
-        echo "已注释掉 'Codesign sparkle' 阶段。"
-        
-        # 3. 把 Carthage Bootstrap 脚本也一起注释掉
-        sed -i '' '/AAE8809C287ACA4900FBB23C/,/name = "Carthage Bootstrap"/ s/^/\/\/ /' PlayCover.xcodeproj/project.pbxproj
-        echo "已注释掉 'Carthage Bootstrap' 阶段。"
+        # 创建一个无害的脚本来替代那个会报错的签名脚本
+        echo "#!/bin/sh" > "$SCRIPT_DIR/Script-AAC28F222899A05B005057FB.sh"
+        echo "echo '成功绕过签名。'" >> "$SCRIPT_DIR/Script-AAC28F222899A05B005057FB.sh"
+        echo "exit 0" >> "$SCRIPT_DIR/Script-AAC28F222899A05B005057FB.sh"
+        chmod +x "$SCRIPT_DIR/Script-AAC28F222899A05B005057FB.sh"
+        echo "已成功放置无害脚本。"
 
-    - name: 编译 PlayCover (Ad-hoc 签名)
-      run: |
+        # 开始编译
         xcodebuild -project PlayCover.xcodeproj \
                    -scheme PlayCover \
                    -configuration Release \
