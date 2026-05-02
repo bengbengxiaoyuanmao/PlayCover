@@ -22,16 +22,19 @@ jobs:
         rm -rf ~/Library/Caches/org.carthage.CarthageKit
         carthage bootstrap --no-use-binaries --platform macOS
 
+    - name: 修复项目配置（移除签名脚本）
+      run: |
+        # 直接修改 project.pbxproj 文件，将 Codesign sparkle 脚本的调用替换为空操作
+        # 查找包含 "AAC28F222899A05B005057FB" 和 "shellScript" 的行，并将其内容替换为简单的退出指令
+        sed -i '' '/AAC28F222899A05B005057FB.*shellScript/,/\\\"/ s|shellScript = \".*\"|shellScript = \"exit 0\"|' PlayCover.xcodeproj/project.pbxproj
+        echo "Patched project.pbxproj to disable Codesign sparkle script."
+        
+        # 同样处理可能遗留的 Carthage Bootstrap 脚本 (AAE8809C287ACA4900FBB23C)
+        sed -i '' '/AAE8809C287ACA4900FBB23C.*shellScript/,/\\\"/ s|shellScript = \".*\"|shellScript = \"exit 0\"|' PlayCover.xcodeproj/project.pbxproj
+        echo "Neutered Carthage Bootstrap script in project file."
+
     - name: 编译 PlayCover (无签名)
       run: |
-        # 找到并覆盖 Codesign sparkle 脚本，避免签名失败
-        SCRIPT_PATH=$(find . -path "*/Script-AAC28F222899A05B005057FB.sh" -print -quit)
-        if [ -f "$SCRIPT_PATH" ]; then
-          echo "exit 0" > "$SCRIPT_PATH"
-          echo "Codesign sparkle script has been overridden."
-        fi
-        
-        # 开始编译
         xcodebuild -project PlayCover.xcodeproj \
                    -scheme PlayCover \
                    -configuration Release \
