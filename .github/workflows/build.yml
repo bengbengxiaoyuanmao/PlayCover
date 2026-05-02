@@ -2,8 +2,8 @@ name: Build PlayCover (Unsigned)
 
 on:
   push:
-    branches: [ "main", "develop" ]
-  workflow_dispatch:   # 允许手动触发
+    branches: [ "main", "develop", "MaaTools" ]
+  workflow_dispatch:
 
 jobs:
   build:
@@ -19,7 +19,8 @@ jobs:
     - name: 安装 Carthage 依赖
       run: |
         brew install carthage
-        carthage bootstrap --no-use-binaries --platform macOS
+        rm -rf ~/Library/Caches/org.carthage.CarthageKit
+        carthage bootstrap --no-use-binaries --platform macOS --no-cache
 
     - name: 编译 PlayCover (无签名)
       run: |
