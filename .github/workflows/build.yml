@@ -24,19 +24,26 @@ jobs:
 
     - name: 编译 PlayCover (无签名)
       run: |
-        # 在Xcode开始构建前，先找到那个会生成的临时脚本
-        # 然后提前创建一个同名、无害的脚本，让Xcode去执行它
-        SCRIPT_DIR="DerivedData/Build/Intermediates.noindex/PlayCover.build/Release/PlayCover.build"
-        mkdir -p "$SCRIPT_DIR"
+        # 1. 在编译前，先确保构建中间目录存在
+        mkdir -p DerivedData/Build/Intermediates.noindex/PlayCover.build/Release/PlayCover.build
         
-        # 创建一个无害的脚本来替代那个会报错的签名脚本
-        echo "#!/bin/sh" > "$SCRIPT_DIR/Script-AAC28F222899A05B005057FB.sh"
-        echo "echo '成功绕过签名。'" >> "$SCRIPT_DIR/Script-AAC28F222899A05B005057FB.sh"
-        echo "exit 0" >> "$SCRIPT_DIR/Script-AAC28F222899A05B005057FB.sh"
-        chmod +x "$SCRIPT_DIR/Script-AAC28F222899A05B005057FB.sh"
-        echo "已成功放置无害脚本。"
+        # 2. 创建一个无害的脚本，覆盖掉那个会报错的 Codesign sparkle 脚本
+        cat > DerivedData/Build/Intermediates.noindex/PlayCover.build/Release/PlayCover.build/Script-AAC28F222899A05B005057FB.sh << 'EOF'
+        #!/bin/sh
+        echo "成功绕过签名脚本。"
+        exit 0
+        EOF
+        chmod +x DerivedData/Build/Intermediates.noindex/PlayCover.build/Release/PlayCover.build/Script-AAC28F222899A05B005057FB.sh
+        
+        # 3. 同样处理 Carthage Bootstrap 脚本（防止它再次出现）
+        cat > DerivedData/Build/Intermediates.noindex/PlayCover.build/Release/PlayCover.build/Script-AAE8809C287ACA4900FBB23C.sh << 'EOF'
+        #!/bin/sh
+        echo "成功绕过 Carthage Bootstrap 脚本。"
+        exit 0
+        EOF
+        chmod +x DerivedData/Build/Intermediates.noindex/PlayCover.build/Release/PlayCover.build/Script-AAE8809C287ACA4900FBB23C.sh
 
-        # 开始编译
+        # 4. 开始编译
         xcodebuild -project PlayCover.xcodeproj \
                    -scheme PlayCover \
                    -configuration Release \
